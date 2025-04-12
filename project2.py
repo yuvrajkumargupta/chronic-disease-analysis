@@ -3,27 +3,32 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import streamlit as st  # For interactive dashboard
-
-# Set better visualization style
-#sns.set_style("whitegrid")
-#plt.style.use("ggplot")  # Modern color theme
-
+from scipy import stats
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+import statsmodels.api as sm
 # Load dataset
 df = pd.read_csv("U.S._Chronic_Disease_Indicators.csv")
+
 # Basic Info
 print("\n shape of data")
 print(df.shape)
+
 # Display column names
 print("\n Columns in Dataset:")
 print(df.columns)
+
 # Display dataset info
 print("\nData types & non-null counts")
 print(df.info())
+
+# Display summary stats
 print("\n Stats summary (mean, std, min, max")
 print(df.describe())
+
 # Display first few rows
 print("\n First 5 rows of dataset:")
 print(df.head())
+
 # Check Missing Values
 print("\n Check Missing Values",df.isnull().sum())
 
@@ -65,32 +70,42 @@ df_cleaned = df_cleaned.dropna(axis=1, thresh=int(0.5 * len(df_cleaned)))
 print("\n Missing Values After Cleaning:")
 print(df_cleaned.isnull().sum())
 
-
 # Convert categorical variables into numerical values
 categorical_cols = df_cleaned.select_dtypes(include='object').columns
 print("\n Categorical Columns:", categorical_cols)
 df_cleaned = pd.get_dummies(df_cleaned, columns=categorical_cols, drop_first=True)
 
-"""#  Optimized Histogram
-plt.figure(figsize=(15, 8), dpi=100)  # High DPI for clarity
-sampled_df = df_cleaned.sample(n=5000, random_state=42)
+print("\nInferential Statistics:")
+num_cols = df_cleaned.select_dtypes(include=['float64', 'int64']).columns
+if len(num_cols) >= 2:
+    group1 = df_cleaned[num_cols[0]].sample(30, random_state=1)
+    group2 = df_cleaned[num_cols[1]].sample(30, random_state=1)
 
-# Select numerical columns
-num_cols = df_cleaned.select_dtypes(include=['float64', 'int64']).columns[:5]
+    # T-test
+    t_stat, t_p = stats.ttest_ind(group1, group2)
+    print(f"T-test between {num_cols[0]} and {num_cols[1]}: t-statistic = {t_stat:.4f}, p-value = {t_p:.4f}")
 
-# Create histograms
-sampled_df[num_cols].hist(
-    bins=30,
-    color='skyblue',
-    edgecolor='black',
-    figsize=(15, 8),
-    layout=(2, 3)  # 2 rows, 3 columns layout for better spacing
-)
+    # Z-test
+    z_stat = (group1.mean() - group2.mean()) / np.sqrt(group1.var()/len(group1) + group2.var()/len(group2))
+    z_p = 2 * (1 - stats.norm.cdf(abs(z_stat)))
+    print(f"Z-test: z-statistic = {z_stat:.4f}, p-value = {z_p:.4f}")
 
-plt.suptitle("Optimized Histogram of Numerical Features", fontsize=14, fontweight='bold')
-plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to fit title
-plt.show()
-"""
+# Chi-squared test for categorical variables
+if "TopicType" in df.columns and "DataSource" in df.columns:
+    contingency_table = pd.crosstab(df["TopicType"], df["DataSource"])
+    chi2, chi_p, dof, _ = stats.chi2_contingency(contingency_table)
+    print(f"Chi-squared test between 'TopicType' and 'DataSource': chi2 = {chi2:.4f}, p-value = {chi_p:.4f}")
+
+# VIF Calculation (Multicollinearity Check)
+print("\nVariance Inflation Factor (VIF):")
+X = df_cleaned[num_cols].dropna()
+X = sm.add_constant(X)
+vif_data = pd.DataFrame()
+vif_data["feature"] = X.columns
+vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
+print(vif_data)
+
+
 # Seaborn-based Histograms for Numerical Features
 plt.figure(figsize=(15, 10), dpi=100)
 sampled_df = df_cleaned.sample(n=5000, random_state=42)
@@ -123,7 +138,6 @@ plt.xlabel("Year")
 plt.ylabel("Data Value")
 plt.xticks(rotation=45)
 
-
 plt.legend(
     title="Disease Type", 
     bbox_to_anchor=(1.25, 1), 
@@ -135,30 +149,7 @@ plt.legend(
 
 plt.tight_layout()  # Auto adjust for spacing
 plt.show()
-#State-wise Analysis - Diabetes Cases
-"""plt.figure(figsize=(14, 7))  
-top_states = (
-    df[df["Topic"] == "Diabetes"]
-    .groupby("LocationDesc")["DataValue"]
-    .mean()
-    .nlargest(10)
-)
 
-top_states.plot(
-    kind='bar', 
-    color='tomato', 
-    edgecolor='black'
-)
-
-plt.title("Top 10 States with Highest Average Diabetes Cases", fontsize=16, fontweight='bold')
-plt.xlabel("State", fontsize=12)
-plt.ylabel("Average Data Value", fontsize=12)
-plt.xticks(rotation=45, ha='right', fontsize=10)
-plt.grid(axis='y', linestyle='--', alpha=0.7)
-
-plt.tight_layout()  # Adjusts spacing to prevent overlap
-plt.show()
-"""
 # Seaborn Barplot - State-wise Diabetes Cases
 plt.figure(figsize=(14, 7))
 top_states = (
@@ -177,7 +168,6 @@ plt.grid(axis='y', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.show()
 
-
 # Distribution of Chronic Disease Records by Year
 plt.figure(figsize=(12, 6))
 sns.countplot(
@@ -192,7 +182,6 @@ plt.ylabel("Number of Records")
 plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
-
 
 #  Correlation Heatmap
 plt.figure(figsize=(12, 8))
@@ -212,21 +201,20 @@ plt.show()
 # Interactive Dashboard using Streamlit
 def main():
     st.title(" Chronic Disease Analysis Dashboard")
-    
+
     if st.checkbox("Show Raw Data"):
         st.write(df_cleaned.head())
-    
+
     st.subheader("Disease Trends Over Time")
     disease_options = df["Topic"].unique()
     selected_disease = st.selectbox("Select a Disease", disease_options)
     filtered_df = df[df["Topic"] == selected_disease]
     st.line_chart(filtered_df.set_index("YearStart")["DataValue"])
-    
+
     st.subheader("State-wise Analysis")
     top_states = df[df["Topic"] == selected_disease].groupby("LocationDesc")["DataValue"].mean().nlargest(10)
     st.bar_chart(top_states)
 
 if __name__ == "__main__":
     main()
-
 print("\nEDA Completed! Data is now cleaned and visualized successfully.")
